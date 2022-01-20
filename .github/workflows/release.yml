@@ -1,0 +1,148 @@
+name: cmake (release)
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'What branch should be built?'
+        required: true
+        default: 'master'
+      releaseVersion:
+        description: 'What version number should be released?'
+        required: true
+      nextVersion:
+        description: 'What SNAPSHOT version number should be used after the release?'
+        required: true
+
+
+env:
+  JAVA_VERSION: 11
+  STAGING_PROFILE_ID: 1a35794454094c
+  USER_EMAIL: cowwoc2020@gmail.com
+  USER_NAME: Gili Tzabar
+  REPOSITORY_ID_PREFIX: comgooglecodecmake-maven-project
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      stagingRepositoryId: ${{ steps.create-staging-output.stagingRepositoryId }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ inputs.branch }}
+      - uses: actions/setup-java@v2
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+      - id: tag-release
+        name: Tag release
+        run: |
+          if git ls-remote -q -h --exit-code ${{ github.repository }} release-${{ inputs.releaseVersion }}
+          then
+            echo "::notice::Tag release-${{ inputs.releaseVersion }} already exists"
+          else
+            echo "::notice::Tagging release as release-${{ inputs.releaseVersion }}"
+            git config user.email ${{ env.USER_EMAIL }}
+            git config user.name ${{ env.USER_NAME }}
+            mvn --batch-mode -V -e versions:set -DnewVersion=${{ inputs.releaseVersion }} -DgenerateBackupPoms=false
+            git add -u
+            git commit -m "[github] Releasing version ${{ inputs.releaseVersion }}"
+            git tag release-${{ inputs.releaseVersion }}
+            git checkout ${{ inputs.branch }}
+            mvn --batch-mode -e versions:set -DnewVersion=${{ inputs.nextVersion }} -DgenerateBackupPoms=false
+            git add -u
+            git diff-index --quiet HEAD || git commit -m "[github] Incrementing version to ${{ inputs.nextVersion }}"
+            git push ${{ github.repository }} ${{ inputs.branch }}
+            git push ${{ github.repository }} release-${{ inputs.releaseVersion }}
+          fi
+      - id: create-staging-output
+        name: Create staging repository
+        run: |
+            # Open a new staging repository and capture its ID
+            git checkout release-${{ inputs.releaseVersion }}
+            mvn --batch-mode -e -DstagingProfileId=${{ env.STAGING_PROFILE_ID }} nexus-staging:rc-open | tee maven.out
+            echo "::set-output name=stagingRepositoryId::$(gawk 'match($0, /Opened (${{ env.REPOSITORY_ID_PREFIX }}-[0-9]+)/, a) { print a[1] }' maven.out)"
+
+  release:
+    name: Deploy Release
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: release-${{ inputs.releaseVersion }}
+      - uses: actions/setup-java@v2
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          server-id: sonatype-nexus-staging
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Cache Maven dependencies
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.m2/repository
+            !~/.m2/repository/com/googlecodecmake-maven-project
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+      - name: Show versions
+        run: |
+          java --version
+          mvn --version
+      - name: Deploy
+        run: |
+          mvn --batch-mode -e -V -U -Dsurefire.useFile=false install
+          # Linux deploys the portable modules as well as its platform-specific binaries.
+          # Remaining platforms only deploy platform-specific binaries.
+          [ "${{ matrix.os }}" == "ubuntu-latest" ] || cd cmake-binaries
+          mvn --batch-mode -e -V -U -Dsurefire.useFile=false -DstagingProfileId=${{ env.STAGING_PROFILE_ID }} -DstagingRepositoryId=${{ needs.validate.outputs.stagingRepositoryId }} -Ddeploy -Dportable deploy
+
+        env:
+          MAVEN_USERNAME: foo
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: artifacts
+          path: |
+            **/target/*.jar
+
+  drop:
+    name: Drop Release
+    needs: release
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: release-${{ inputs.releaseVersion }}
+      - uses: actions/setup-java@v2
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+      - id: drop-release
+        name: Drop release
+        run: mvn --batch-mode -e -DstagingProfileId=${{ env.STAGING_PROFILE_ID }} nexus-staging:rc-drop
+
+  close:
+    name: Close Release
+    needs: release
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: release-${{ inputs.releaseVersion }}
+      - uses: actions/setup-java@v2
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+      - id: close-release
+        name: Close release
+        run: mvn --batch-mode -e -DstagingProfileId=${{ env.STAGING_PROFILE_ID }} nexus-staging:rc-close
+    
