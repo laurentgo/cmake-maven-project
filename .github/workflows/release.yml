@@ -33,6 +33,7 @@ jobs:
           ref: ${{ inputs.branch }}
       - uses: actions/setup-java@v2
         with:
+          distribution: 'temurin'  
           java-version: ${{ env.JAVA_VERSION }}
       - id: tag-release
         name: Tag release
@@ -76,6 +77,7 @@ jobs:
           ref: release-${{ inputs.releaseVersion }}
       - uses: actions/setup-java@v2
         with:
+          distribution: 'temurin'  
           java-version: ${{ env.JAVA_VERSION }}
           server-id: sonatype-nexus-staging
           server-username: MAVEN_USERNAME
@@ -125,6 +127,7 @@ jobs:
           ref: release-${{ inputs.releaseVersion }}
       - uses: actions/setup-java@v2
         with:
+          distribution: 'temurin'  
           java-version: ${{ env.JAVA_VERSION }}
       - id: drop-release
         name: Drop release
@@ -141,6 +144,7 @@ jobs:
           ref: release-${{ inputs.releaseVersion }}
       - uses: actions/setup-java@v2
         with:
+          distribution: 'temurin'  
           java-version: ${{ env.JAVA_VERSION }}
       - id: close-release
         name: Close release
