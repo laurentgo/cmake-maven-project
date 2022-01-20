@@ -53,8 +53,8 @@ jobs:
             mvn --batch-mode -e versions:set -DnewVersion=${{ github.event.inputs.nextVersion }} -DgenerateBackupPoms=false
             git add -u
             git diff-index --quiet HEAD || git commit -m "[github] Incrementing version to ${{ github.event.inputs.nextVersion }}"
-            git push ${{ github.repository }} ${{ github.event.inputs.branch }}
-            git push ${{ github.repository }} release-${{ github.event.inputs.releaseVersion }}
+            git push origin ${{ github.event.inputs.branch }}
+            git push origin release-${{ github.event.inputs.releaseVersion }}
           fi
       - id: create-staging-output
         name: Create staging repository
