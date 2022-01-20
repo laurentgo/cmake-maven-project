@@ -60,6 +60,7 @@ jobs:
         name: Create staging repository
         run: |
             # Open a new staging repository and capture its ID
+            set -o pipefail
             git checkout release-${{ github.event.inputs.releaseVersion }}
             mvn --batch-mode -e -DstagingProfileId=${{ env.STAGING_PROFILE_ID }} nexus-staging:rc-open | tee maven.out
             echo "::set-output name=stagingRepositoryId::$(gawk 'match($0, /Opened (${{ env.REPOSITORY_ID_PREFIX }}-[0-9]+)/, a) { print a[1] }' maven.out)"
