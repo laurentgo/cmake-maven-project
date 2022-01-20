@@ -17,6 +17,7 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v2
+          ref: ${{ github.event.inputs.branch }}
       - uses: actions/setup-java@v2
         with:
           distribution: 'temurin'  
